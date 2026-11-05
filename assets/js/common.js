@@ -40,6 +40,7 @@
     up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     x: '<path d="M6 6l12 12M18 6L6 18"/>',
+    heart: '<path d="M12 21s-7-4.6-9.3-9A5.2 5.2 0 0 1 12 6.6 5.2 5.2 0 0 1 21.3 12C19 16.4 12 21 12 21z"/>',
     eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     inbox: '<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>',
     grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -165,6 +166,11 @@
     if (DG.mode === 'server') return req('DELETE', 'api/submissions/' + encodeURIComponent(id), { auth: true });
     saveLocalSubs(localSubs().filter(s => s.id !== id));
   };
+
+  /* ---------- المشاهدات والإعجابات ---------- */
+  DG.stats = async () => DG.mode === 'server' ? req('GET', 'api/stats') : { stats: {}, mine: [] };
+  DG.engage = (id, kind) => DG.mode === 'server' ? req('POST', 'api/news/' + encodeURIComponent(id) + '/' + kind, { json: {} }) : Promise.resolve(null);
+  DG.fmt = n => { n = +n || 0; return n >= 10000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1).replace('.0', '') + ' ألف' : n.toLocaleString('en-US'); };
 
   /* ---------- التصويت ---------- */
   const emptyCounts = () => ({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });

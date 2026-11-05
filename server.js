@@ -11,10 +11,14 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 
 const ROOT = __dirname;
-const DATA = path.join(ROOT, 'data');
-const UPLOADS = path.join(ROOT, 'uploads');
+/* التخزين الدائم: على Render اضبط STORAGE_DIR على مسار القرص (مثل /var/data) فيُحفظ فيه data/ و uploads/ */
+const STORAGE = process.env.STORAGE_DIR ? path.resolve(process.env.STORAGE_DIR) : ROOT;
+const SEED_FILE = path.join(ROOT, 'data', 'content.js');
+const DATA = path.join(STORAGE, 'data');
+const UPLOADS = path.join(STORAGE, 'uploads');
 const PORT = +process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin12345';
 const SESSION_MS = 8 * 3600 * 1000;
@@ -28,12 +32,26 @@ const F = {
   content: path.join(DATA, 'content.json'),
   votes: path.join(DATA, 'votes.json'),
   subs: path.join(DATA, 'submissions.json'),
+  stats: path.join(DATA, 'stats.json'),
   secret: path.join(DATA, 'secret.key'),
 };
-function readJSON(file, def) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return def; } }
-function writeJSON(file, obj) { const tmp = file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(obj, null, 1)); fs.renameSync(tmp, file); }
+/* ذاكرة مؤقتة: القراءة من الذاكرة (سريعة)، والكتابة إلى القرص ذرّياً فتبقى البيانات دائمة */
+const cache = new Map();
+function readJSON(file, def) {
+  if (cache.has(file)) return cache.get(file);
+  let v; try { v = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { v = def; }
+  if (v !== null && v !== undefined) cache.set(file, v);
+  return v;
+}
+function flush(file, obj) { const tmp = file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(obj)); fs.renameSync(tmp, file); }
+function writeJSON(file, obj) { cache.set(file, obj); flush(file, obj); }
+const dirty = new Set();
+function writeLater(file, obj) { cache.set(file, obj); dirty.add(file); }
+function flushAll() { for (const f of dirty) { try { flush(f, cache.get(f)); } catch (e) { console.error(e); } } dirty.clear(); }
+setInterval(flushAll, 2000).unref();
+['SIGTERM', 'SIGINT'].forEach(sg => process.on(sg, () => { flushAll(); process.exit(0); }));
 function seed() {
-  const t = fs.readFileSync(path.join(DATA, 'content.js'), 'utf8');
+  const t = fs.readFileSync(SEED_FILE, 'utf8');
   return JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
 }
 let SECRET = ''; try { SECRET = fs.readFileSync(F.secret, 'utf8'); } catch (e) { }
@@ -70,7 +88,13 @@ const SEC_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'",
 };
 function send(res, code, body, headers = {}) { res.writeHead(code, { ...SEC_HEADERS, ...headers }); res.end(body); }
-function json(res, code, obj, headers = {}) { send(res, code, JSON.stringify(obj), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers }); }
+function json(res, code, obj, headers = {}, req) {
+  const body = JSON.stringify(obj), h = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers };
+  if (req && body.length > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+    return zlib.gzip(body, (e, z) => send(res, 200, e ? body : z, e ? h : { ...h, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' }));
+  }
+  send(res, code, body, h);
+}
 function readBody(req, limit) {
   return new Promise((resolve, reject) => {
     const chunks = []; let n = 0;
@@ -130,14 +154,14 @@ async function api(req, res, u) {
   if (p === '/api/me') return isAuth(req) ? json(res, 200, { ok: true }) : json(res, 401, { error: 'auth' });
 
   if (p === '/api/content') {
-    if (m === 'GET') return json(res, 200, readJSON(F.content, null) || seed());
+    if (m === 'GET') return json(res, 200, readJSON(F.content, null) || seed(), { 'Cache-Control': 'no-cache' }, req);
     if (!isAuth(req)) return json(res, 401, { error: 'auth' });
     if (m === 'PUT') {
       const o = await bodyJSON(req, 2e6);
       if (!o || typeof o !== 'object' || !Array.isArray(o.news) || !o.settings) return json(res, 400, { error: 'bad_content' });
       writeJSON(F.content, o); return json(res, 200, { ok: true });
     }
-    if (m === 'DELETE') { try { fs.unlinkSync(F.content); } catch (e) { } return json(res, 200, { ok: true }); }
+    if (m === 'DELETE') { cache.delete(F.content); try { fs.unlinkSync(F.content); } catch (e) { } return json(res, 200, { ok: true }); }
   }
 
   if (p === '/api/upload' && m === 'POST') {
@@ -148,6 +172,33 @@ async function api(req, res, u) {
     const name = crypto.randomBytes(10).toString('hex') + '.' + ext;
     fs.writeFileSync(path.join(UPLOADS, name), buf);
     return json(res, 200, { url: 'uploads/' + name });
+  }
+
+  /* ---------- المشاهدات والإعجابات ---------- */
+  const NEWS_ID = /^\/api\/news\/([A-Za-z0-9_-]{1,40})\/(view|like)$/.exec(p);
+  if (p === '/api/stats' && m === 'GET') {
+    const st = readJSON(F.stats, {}), c = readJSON(F.content, null) || seed(), vid = voterId(req, res), h = hmac(vid);
+    const out = {}, mine = [];
+    for (const n of c.news) {
+      const x = st[n.id] || {};
+      out[n.id] = { v: (+n.viewsStart || 0) + (x.v || 0), l: (+n.likesStart || 0) + Object.keys(x.lk || {}).length };
+      if (x.lk && x.lk[h.slice(0, 16)]) mine.push(n.id);
+    }
+    return json(res, 200, { stats: out, mine }, { 'Cache-Control': 'no-cache' });
+  }
+  if (NEWS_ID && m === 'POST') {
+    if (limited('eng:' + ip, 120, 600000)) return json(res, 429, { error: 'too_many' });
+    const id = NEWS_ID[1], c = readJSON(F.content, null) || seed();
+    if (!c.news.some(n => n.id === id)) return json(res, 404, { error: 'not_found' });
+    const st = readJSON(F.stats, {}), x = st[id] || (st[id] = { v: 0, lk: {} }); x.lk = x.lk || {};
+    const h = hmac(voterId(req, res)).slice(0, 16), n0 = c.news.find(n => n.id === id);
+    if (NEWS_ID[2] === 'view') {
+      if (!limited('view:' + h + ':' + id, 1, 6 * 3600000)) x.v = (x.v || 0) + 1; /* مشاهدة واحدة لكل زائر كل 6 ساعات */
+    } else {
+      if (x.lk[h]) delete x.lk[h]; else x.lk[h] = 1;
+    }
+    writeLater(F.stats, st);
+    return json(res, 200, { v: (+n0.viewsStart || 0) + (x.v || 0), l: (+n0.likesStart || 0) + Object.keys(x.lk).length, liked: !!x.lk[h] });
   }
 
   if (p === '/api/votes' && m === 'GET') return json(res, 200, votesView(req, res, false));
@@ -201,23 +252,54 @@ async function api(req, res, u) {
 /* ---------- الملفات الثابتة ---------- */
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.webm': 'video/webm', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8' };
 const ALLOWED_TOP = new Set(['index.html', 'admin.html', 'assets', 'uploads', 'data']);
+const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.txt']);
+const fileCache = new Map(); /* مسار -> {mtime, size, etag, raw, gz} للملفات النصية الصغيرة */
 function serveStatic(req, res, u) {
   let rel = decodeURIComponent(u.pathname);
   if (rel === '/' || rel === '') rel = '/index.html';
   if (rel === '/admin') rel = '/admin.html';
-  const abs = path.normalize(path.join(ROOT, rel));
-  if (!abs.startsWith(ROOT + path.sep)) return send(res, 403, 'Forbidden');
-  const parts = path.relative(ROOT, abs).split(path.sep);
-  if (!ALLOWED_TOP.has(parts[0]) || parts.some(s => s.startsWith('.'))) return send(res, 404, 'Not found');
-  if (parts[0] === 'data' && !(parts.length === 2 && parts[1] === 'content.js')) return send(res, 404, 'Not found');
+  const segs = rel.split('/').filter(Boolean);
+  if (!segs.length || !ALLOWED_TOP.has(segs[0]) || segs.some(s => s.startsWith('.') || s.includes('\\'))) return send(res, 404, 'Not found');
+  if (segs[0] === 'data' && !(segs.length === 2 && segs[1] === 'content.js')) return send(res, 404, 'Not found');
+  const base = segs[0] === 'uploads' ? UPLOADS : ROOT;
+  const abs = segs[0] === 'uploads' ? path.join(UPLOADS, ...segs.slice(1)) : path.join(ROOT, ...segs);
+  if (!abs.startsWith(base + path.sep)) return send(res, 403, 'Forbidden');
   fs.stat(abs, (err, st) => {
     if (err || !st.isFile()) return send(res, 404, 'Not found');
-    const ext = path.extname(abs).toLowerCase(), type = MIME[ext] || 'application/octet-stream';
-    const headers = { 'Content-Type': type, 'Cache-Control': parts[0] === 'uploads' ? 'public, max-age=86400' : 'no-cache' };
-    if (parts[0] === 'admin.html' || abs.endsWith('admin.html')) headers['X-Robots-Tag'] = 'noindex';
-    if (req.method === 'HEAD') return send(res, 200, '', { ...headers, 'Content-Length': st.size });
-    res.writeHead(200, { ...SEC_HEADERS, ...headers, 'Content-Length': st.size });
-    fs.createReadStream(abs).pipe(res);
+    const ext = path.extname(abs).toLowerCase(), type = MIME[ext] || 'application/octet-stream', top = segs[0];
+    const etag = 'W/"' + st.size.toString(16) + '-' + Math.floor(st.mtimeMs).toString(16) + '"';
+    const headers = { 'Content-Type': type, ETag: etag, 'Accept-Ranges': 'bytes',
+      'Cache-Control': top === 'uploads' ? 'public, max-age=31536000, immutable' : (top === 'assets' ? 'public, max-age=3600, must-revalidate' : 'no-cache') };
+    if (abs.endsWith('admin.html')) headers['X-Robots-Tag'] = 'noindex';
+    if (req.headers['if-none-match'] === etag) return send(res, 304, '', headers);
+    const gz = COMPRESSIBLE.has(ext) && st.size > 512 && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+    if (COMPRESSIBLE.has(ext)) {
+      headers.Vary = 'Accept-Encoding';
+      let c = fileCache.get(abs);
+      const serve = c => {
+        const body = gz ? c.gz : c.raw;
+        if (gz) headers['Content-Encoding'] = 'gzip';
+        headers['Content-Length'] = body.length;
+        res.writeHead(200, { ...SEC_HEADERS, ...headers }); res.end(req.method === 'HEAD' ? undefined : body);
+      };
+      if (c && c.etag === etag) return serve(c);
+      return fs.readFile(abs, (e, raw) => {
+        if (e) return send(res, 404, 'Not found');
+        c = { etag, raw, gz: zlib.gzipSync(raw, { level: 9 }) }; fileCache.set(abs, c); serve(c);
+      });
+    }
+    /* وسائط (صور/فيديو): دعم Range لتشغيل وتقديم سلس للفيديو */
+    let start = 0, end = st.size - 1, code = 200;
+    const r = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    if (r && (r[1] || r[2])) {
+      if (r[1]) { start = +r[1]; if (r[2]) end = Math.min(+r[2], end); } else { start = Math.max(0, st.size - +r[2]); }
+      if (start > end || start >= st.size) return send(res, 416, '', { 'Content-Range': 'bytes */' + st.size });
+      code = 206; headers['Content-Range'] = `bytes ${start}-${end}/${st.size}`;
+    }
+    headers['Content-Length'] = end - start + 1;
+    res.writeHead(code, { ...SEC_HEADERS, ...headers });
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(abs, { start, end }).pipe(res);
   });
 }
 
@@ -233,6 +315,7 @@ http.createServer(async (req, res) => {
     if (code === 500) console.error(e);
   }
 }).listen(PORT, () => {
+  console.log(`التخزين:      ${STORAGE}`);
   console.log(`\nالموقع:       http://localhost:${PORT}/`);
   console.log(`لوحة التحكم:  http://localhost:${PORT}/admin.html`);
   if (!process.env.ADMIN_PASSWORD) console.log('\nتنبيه: تعمل لوحة التحكم بكلمة المرور الافتراضية (admin12345). غيّرها قبل النشر:\n  ADMIN_PASSWORD="كلمة-مرور-قوية" node server.js\n');

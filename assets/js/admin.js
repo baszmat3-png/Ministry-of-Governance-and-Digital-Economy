@@ -58,6 +58,8 @@
       <div class="fld w2"><label for="f-img">صورة الخبر</label><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><img id="f-prev" alt="" src="${esc(n.img || '')}" style="${n.img ? '' : 'display:none;'}width:96px;height:64px;border-radius:8px;object-fit:cover"><input id="f-img" type="file" accept="image/*" style="flex:1;min-width:200px"></div>
         <input type="hidden" name="img" value="${esc(n.img || '')}"><input type="hidden" name="img2" value="${esc(n.img2 || '')}"><input type="hidden" name="pos" value="${esc(n.pos || 'center')}"><input type="hidden" name="video" value="${esc(n.video || '')}"></div>
       <div class="fld w2"><label for="f-video">فيديو الخبر (اختياري)</label><input id="f-video" type="file" accept="video/mp4,video/webm"><div class="note" id="f-vstat">${n.video ? 'يوجد فيديو مرفق بهذا الخبر.' : 'يُشغَّل الفيديو تلقائياً وبلا صوت عند الوقوف على بطاقة الخبر، ويتوقف عند الابتعاد. الحد الأقصى 25 ميغابايت، بصيغة MP4 أو WebM.'}</div>${n.video ? '<button class="btn danger sm" type="button" data-action="rmVideo" style="justify-self:start">إزالة الفيديو</button>' : ''}</div>
+      <div class="fld"><label for="f-vs">رقم بداية المشاهدات (اختياري)</label><input id="f-vs" name="viewsStart" type="number" min="0" value="${esc(n.viewsStart || 0)}"></div>
+      <div class="fld"><label for="f-ls">رقم بداية الإعجابات (اختياري)</label><input id="f-ls" name="likesStart" type="number" min="0" value="${esc(n.likesStart || 0)}"></div>
     </div><div class="err" role="alert" data-err></div>
     <div class="acts" style="margin-top:14px"><button class="btn" type="submit">${isNew ? 'نشر الخبر' : 'حفظ التعديلات'}</button><button class="btn ghost" type="button" data-action="cancelEdit">إلغاء</button></div></form></div>`;
   }
@@ -140,7 +142,7 @@
     }
   }
   function render() {
-    const y = window.scrollY, nNew = subs.filter(x => x.status === 'new').length;
+    const sideOld = document.querySelector('.side'), sx = sideOld ? sideOld.scrollLeft : 0, y = window.scrollY, nNew = subs.filter(x => x.status === 'new').length;
     const tabs = [['overview', 'grid', 'نظرة عامة'], ['news', 'news', 'الأخبار'], ['links', 'link', 'المواقع الرسمية'], ['inbox', 'inbox', 'الشكاوى والاقتراحات'], ['content', 'list', 'محتوى الأقسام'], ['identity', 'vote', 'الهوية والتصويت'], ['settings', 'gear', 'إعدادات الموقع']];
     const mode = DG.mode === 'server'
       ? `<div class="mode live">${ic('shield')}<div><b>متصل بالخادم.</b> كل تعديل تحفظه يظهر مباشرة لزوار الموقع.</div></div>`
@@ -149,6 +151,8 @@
       <div class="dash-g"><nav class="side" aria-label="أقسام لوحة التحكم">${tabs.map(t => `<button data-action="tab" data-v="${t[0]}" ${ui.tab === t[0] ? 'aria-current="true"' : ''}>${ic(t[1])}${t[2]}${t[0] === 'inbox' && nNew ? `<span class="badge">${nNew}</span>` : ''}</button>`).join('')}</nav>
       <div id="dpane">${paneHTML()}</div></div></div>`;
     window.scrollTo(0, y);
+    const sd = document.querySelector('.side'); /* إبقاء شريط الأقسام في موضعه وإظهار القسم الحالي فيه */
+    if (sd) { sd.scrollLeft = sx; const cur = sd.querySelector('[aria-current]'); if (cur) { const r = cur.getBoundingClientRect(), b = sd.getBoundingClientRect(); if (r.left < b.left || r.right > b.right) sd.scrollLeft += (r.left + r.right) / 2 - (b.left + b.right) / 2; } }
   }
 
   /* ---------- رفع الملفات ---------- */
@@ -215,7 +219,7 @@
     if (df === 'news') {
       if (!v('title') || !v('summary')) { err.textContent = 'أكمل العنوان والملخص.'; return; }
       if (!v('img')) { err.textContent = 'أضف صورة للخبر.'; return; }
-      const item = { id: f.dataset.id || 'n' + DG.uid(), title: v('title'), cat: v('cat') || 'أخبار', date: v('date'), summary: v('summary'), body: v('body'), img: v('img'), img2: v('img2'), pos: v('pos') || 'center', video: v('video') };
+      const item = { id: f.dataset.id || 'n' + DG.uid(), title: v('title'), cat: v('cat') || 'أخبار', date: v('date'), summary: v('summary'), body: v('body'), img: v('img'), img2: v('img2'), pos: v('pos') || 'center', video: v('video'), viewsStart: Math.max(0, +v('viewsStart') || 0), likesStart: Math.max(0, +v('likesStart') || 0) };
       if (!item.img2) delete item.img2; if (!item.video) delete item.video;
       const i = S.news.findIndex(n => n.id === item.id); if (i >= 0) S.news[i] = item; else S.news.unshift(item);
       ui.edit = null; await commit(i >= 0 ? 'حُفظ الخبر' : 'نُشر الخبر'); render();

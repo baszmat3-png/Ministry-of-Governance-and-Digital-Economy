@@ -21,6 +21,18 @@
     $('#themeMenu').innerHTML = '<h4>ثيم الموقع</h4>' + items.join('');
   }
 
+  /* ---------- المشاهدات والإعجابات ---------- */
+  let ST = {}, LIKED = new Set();
+  const engHTML = id => { const x = ST[id] || { v: 0, l: 0 }, on = LIKED.has(id);
+    return `<span class="eng" data-eng="${esc(id)}"><span class="ev" title="المشاهدات">${ic('eye')}<b>${DG.fmt(x.v)}</b></span><span class="el${on ? ' on' : ''}" role="button" tabindex="0" data-action="like" data-id="${esc(id)}" aria-pressed="${on}" aria-label="إعجاب">${ic('heart')}<b>${DG.fmt(x.l)}</b></span></span>`; };
+  const paintEng = id => $$('[data-eng="' + id + '"]').forEach(e => e.outerHTML = engHTML(id));
+  async function loadStats() { try { const r = await DG.stats(); ST = r.stats || {}; LIKED = new Set(r.mine || []); S.news.forEach(n => paintEng(n.id)); } catch (e) { } }
+  async function like(id) {
+    const was = LIKED.has(id), x = ST[id] || (ST[id] = { v: 0, l: 0 });
+    was ? (LIKED.delete(id), x.l--) : (LIKED.add(id), x.l++); paintEng(id);
+    try { const r = await DG.engage(id, 'like'); if (r) { x.l = r.l; x.v = r.v; r.liked ? LIKED.add(id) : LIKED.delete(id); paintEng(id); } } catch (e) { was ? LIKED.add(id) : LIKED.delete(id); x.l += was ? 1 : -1; paintEng(id); }
+  }
+
   /* ---------- الأخبار ---------- */
   function newsCard(n, i, list) {
     const feat = i === 0 && filter === 'الكل';
@@ -32,7 +44,7 @@
       : `<img src="${esc(n.img)}" alt="" style="object-position:${pos}">`;
     return `<button class="card ncard${feat ? ' feat' : ''}${w}${n.video ? ' hasvid' : ''}" data-action="openNews" data-id="${esc(n.id)}">
       <div class="im">${media}</div>
-      <div class="tx"><div class="meta"><span class="tag">${esc(n.cat)}</span><span>${esc(n.date)}</span></div><h3>${esc(n.title)}</h3><p>${esc(n.summary)}</p><span class="more">اقرأ الخبر كاملاً ←</span></div></button>`;
+      <div class="tx"><div class="meta"><span class="tag">${esc(n.cat)}</span><span>${esc(n.date)}</span></div><h3>${esc(n.title)}</h3><p>${esc(n.summary)}</p><div class="foot2"><span class="more">اقرأ الخبر كاملاً ←</span>${engHTML(n.id)}</div></div></button>`;
   }
 
   /* ---------- الروابط ---------- */
@@ -191,7 +203,8 @@
       <div class="mim${n.video ? ' vid' : ''}">${n.video ? `<video src="${esc(n.video)}" poster="${esc(n.img)}" controls playsinline loop></video>` : `<img src="${esc(n.img)}" alt="" style="object-position:${pos}">`}</div>
       ${imgs.length ? `<div class="mgal">${imgs.map(i => `<img src="${esc(i)}" alt="">`).join('')}</div>` : ''}
       <div class="mb"><div class="meta"><span class="tag">${esc(n.cat)}</span><span>${esc(n.date)}</span></div><h2>${esc(n.title)}</h2>
-      <div class="body">${String(n.body || n.summary || '').split('\n').filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('')}</div></div></div></div>`;
+      <div class="mfoot">${engHTML(n.id)}</div><div class="body">${String(n.body || n.summary || '').split('\n').filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('')}</div></div></div></div>`;
+    DG.engage(id, 'view').then(r => { if (r) { (ST[id] = ST[id] || {}).v = r.v; ST[id].l = r.l; paintEng(id); } }).catch(() => { });
     $$('.ncard.hasvid video').forEach(v => { v._want = false; v.pause(); });
     $('#modalHost .x').focus();
     const mv = $('#modalHost .mim video');
@@ -323,6 +336,7 @@
       case 'closeModal': if (e.target === a || a.classList.contains('x') || a.closest('.x')) closeModal(); break;
       case 'filter': filter = a.dataset.v; renderAll(); { const n = document.getElementById('news'); n && n.scrollIntoView(); } break;
       case 'openNews': openNews(id); break;
+      case 'like': e.preventDefault(); e.stopPropagation(); like(id); break;
       case 'toggleSound': e.preventDefault(); e.stopPropagation(); toggleSound(a); break;
       case 'ckind': contactKind = a.dataset.v; renderAll(); { const n = document.getElementById('contact'); n && n.scrollIntoView(); } break;
       case 'preview': setPreview(+id); break;
@@ -333,7 +347,7 @@
       }
     }
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#modalHost .ov')) closeModal(); closeMenus(); } });
+  document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.dataset && e.target.dataset.action === 'like') { e.preventDefault(); like(e.target.dataset.id); return; } if (e.key === 'Escape') { if ($('#modalHost .ov')) closeModal(); closeMenus(); } });
   document.addEventListener('submit', e => { const f = e.target; if (f.dataset && f.dataset.form) { e.preventDefault(); submitForm(f); } });
 
   /* ---------- التشغيل ---------- */
@@ -342,7 +356,7 @@
     await DG.init();
     S = await DG.loadContent();
     DG.applyLook(S.settings, preview); renderAll();
-    loadVotes();
+    loadVotes(); loadStats();
     setInterval(() => { if (document.visibilityState === 'visible') loadVotes(); }, 20000);
     if (location.hash && location.hash.length > 1) { const el = document.getElementById(location.hash.slice(1)); if (el) el.scrollIntoView(); }
   }
