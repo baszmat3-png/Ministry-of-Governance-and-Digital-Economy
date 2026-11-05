@@ -1,0 +1,8 @@
+{
+  "name": "digital-economy-ministry-site",
+  "version": "1.0.0",
+  "description": "موقع وزارة الاقتصاد الرقمي والحوكمة: واجهة عامة (index.html) ولوحة تحكم منفصلة (admin.html) وخادم Node بلا حزم خارجية",
+  "private": true,
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=16" }
+}
