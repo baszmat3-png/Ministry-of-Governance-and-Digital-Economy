@@ -55,7 +55,7 @@
       <div class="fld"><label for="f-date">التاريخ أو الوصف الزمني</label><input id="f-date" name="date" value="${esc(n.date || '')}" placeholder="مثال: 5 تشرين الثاني 2026"></div>
       <div class="fld w2"><label class="req" for="f-sum">ملخص قصير</label><textarea id="f-sum" name="summary" style="min-height:80px">${esc(n.summary || '')}</textarea></div>
       <div class="fld w2"><label for="f-body">نص الخبر (كل فقرة في سطر)</label><textarea id="f-body" name="body" style="min-height:180px">${esc(n.body || '')}</textarea></div>
-      <div class="fld w2"><label for="f-img">صورة الخبر</label><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><img id="f-prev" alt="" src="${esc(n.img || '')}" style="${n.img ? '' : 'display:none;'}width:96px;height:64px;border-radius:8px;object-fit:cover"><input id="f-img" type="file" accept="image/*" style="flex:1;min-width:200px"></div>
+      <div class="fld w2"><label for="f-img">صورة الخبر (أو ارفع فيديو بدلاً منها)</label><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><img id="f-prev" alt="" src="${esc(n.img || '')}" style="${n.img ? '' : 'display:none;'}width:96px;height:64px;border-radius:8px;object-fit:cover"><input id="f-img" type="file" accept="image/*" style="flex:1;min-width:200px"></div>
         <input type="hidden" name="img" value="${esc(n.img || '')}"><input type="hidden" name="img2" value="${esc(n.img2 || '')}"><input type="hidden" name="pos" value="${esc(n.pos || 'center')}"><input type="hidden" name="video" value="${esc(n.video || '')}"></div>
       <div class="fld w2"><label for="f-video">فيديو الخبر (اختياري)</label><input id="f-video" type="file" accept="video/mp4,video/webm"><div class="note" id="f-vstat">${n.video ? 'يوجد فيديو مرفق بهذا الخبر.' : 'يُشغَّل الفيديو تلقائياً وبلا صوت عند الوقوف على بطاقة الخبر، ويتوقف عند الابتعاد. الحد الأقصى 25 ميغابايت، بصيغة MP4 أو WebM.'}</div>${n.video ? '<button class="btn danger sm" type="button" data-action="rmVideo" style="justify-self:start">إزالة الفيديو</button>' : ''}</div>
       <div class="fld"><label for="f-vs">رقم بداية المشاهدات (اختياري)</label><input id="f-vs" name="viewsStart" type="number" min="0" value="${esc(n.viewsStart || 0)}"></div>
@@ -66,7 +66,7 @@
   function newsPane() {
     return `<div class="sub-head"><h2>الأخبار</h2><button class="btn sm" data-action="newNews">${ic('plus')} خبر جديد</button></div>
     ${ui.edit && ui.edit.k === 'news' ? newsForm(ui.edit.item) : ''}
-    <div class="rows">${S.news.map((n, i) => `<div class="row"><img class="th" src="${esc(n.img)}" alt=""><div style="min-width:0"><b>${esc(n.title)}</b><small>${esc(n.cat)} · ${esc(n.date)}${n.video ? ' · فيديو' : ''}${i === 0 ? ' · الخبر الرئيسي' : ''}</small></div>
+    <div class="rows">${S.news.map((n, i) => `<div class="row">${n.img ? `<img class="th" src="${esc(n.img)}" alt="">` : `<video class="th" src="${esc(n.video || '')}#t=0.1" muted playsinline preload="metadata"></video>`}<div style="min-width:0"><b>${esc(n.title)}</b><small>${esc(n.cat)} · ${esc(n.date)}${n.video ? ' · فيديو' : ''}${i === 0 ? ' · الخبر الرئيسي' : ''}</small></div>
       <div class="acts">${i > 0 ? `<button class="btn ghost sm" data-action="newsUp" data-id="${esc(n.id)}" title="نقل للأعلى" aria-label="نقل للأعلى">${ic('up')}</button>` : ''}<button class="btn ghost sm" data-action="editNews" data-id="${esc(n.id)}">${ic('edit')} تعديل</button><button class="btn danger sm" data-action="delArm" data-k="news" data-id="${esc(n.id)}">${ic('trash')} ${ui.done['news' + n.id] ? 'تأكيد الحذف' : 'حذف'}</button></div></div>`).join('') || '<div class="empty">لا توجد أخبار. أضف أول خبر.</div>'}</div>`;
   }
   function linksPane() {
@@ -218,7 +218,7 @@
     const err = $('[data-err]', f), v = n => ((f.elements.namedItem(n) || {}).value || '').trim();
     if (df === 'news') {
       if (!v('title') || !v('summary')) { err.textContent = 'أكمل العنوان والملخص.'; return; }
-      if (!v('img')) { err.textContent = 'أضف صورة للخبر.'; return; }
+      if (!v('img') && !v('video')) { err.textContent = 'أضف صورة أو فيديو للخبر.'; return; }
       const item = { id: f.dataset.id || 'n' + DG.uid(), title: v('title'), cat: v('cat') || 'أخبار', date: v('date'), summary: v('summary'), body: v('body'), img: v('img'), img2: v('img2'), pos: v('pos') || 'center', video: v('video'), viewsStart: Math.max(0, +v('viewsStart') || 0), likesStart: Math.max(0, +v('likesStart') || 0) };
       if (!item.img2) delete item.img2; if (!item.video) delete item.video;
       const i = S.news.findIndex(n => n.id === item.id); if (i >= 0) S.news[i] = item; else S.news.unshift(item);

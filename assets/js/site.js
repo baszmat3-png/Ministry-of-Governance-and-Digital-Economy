@@ -40,7 +40,7 @@
     const w = !feat && rest % 3 === 2 && j < 2 ? ' w3' : (!feat && rest % 3 === 1 && j === 0 ? ' w6' : '');
     const pos = esc(n.pos || 'center');
     const media = n.video
-      ? `<video src="${esc(n.video)}" poster="${esc(n.img)}" muted loop playsinline preload="metadata" style="object-position:${pos}"></video><span class="vbadge" data-vb data-action="toggleSound" role="button" tabindex="0" aria-label="تشغيل أو كتم صوت الفيديو">${ic('play')} <em>فيديو</em></span>`
+      ? `<video src="${esc(n.video)}${n.img ? '' : '#t=0.1'}"${n.img ? ` poster="${esc(n.img)}"` : ''} muted loop playsinline preload="metadata" style="object-position:${pos}"></video><span class="vbadge" data-vb data-action="toggleSound" role="button" tabindex="0" aria-label="تشغيل أو كتم صوت الفيديو">${ic('play')} <em>فيديو</em></span>`
       : `<img src="${esc(n.img)}" alt="" style="object-position:${pos}">`;
     return `<button class="card ncard${feat ? ' feat' : ''}${w}${n.video ? ' hasvid' : ''}" data-action="openNews" data-id="${esc(n.id)}">
       <div class="im">${media}</div>
@@ -200,7 +200,7 @@
     const imgs = [n.img2].filter(Boolean), pos = esc(n.pos || 'center');
     $('#modalHost').innerHTML = `<div class="ov" data-action="closeModal"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(n.title)}">
       <button class="iconbtn x" data-action="closeModal" aria-label="إغلاق">${ic('x')}</button>
-      <div class="mim${n.video ? ' vid' : ''}">${n.video ? `<video src="${esc(n.video)}" poster="${esc(n.img)}" controls playsinline loop></video>` : `<img src="${esc(n.img)}" alt="" style="object-position:${pos}">`}</div>
+      <div class="mim${n.video ? ' vid' : ''}">${n.video ? `<video src="${esc(n.video)}"${n.img ? ` poster="${esc(n.img)}"` : ''} preload="auto" controls playsinline loop></video>` : `<img src="${esc(n.img)}" alt="" style="object-position:${pos}">`}</div>
       ${imgs.length ? `<div class="mgal">${imgs.map(i => `<img src="${esc(i)}" alt="">`).join('')}</div>` : ''}
       <div class="mb"><div class="meta"><span class="tag">${esc(n.cat)}</span><span>${esc(n.date)}</span></div><h2>${esc(n.title)}</h2>
       <div class="mfoot">${engHTML(n.id)}</div><div class="body">${String(n.body || n.summary || '').split('\n').filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('')}</div></div></div></div>`;
