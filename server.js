@@ -253,6 +253,7 @@ async function api(req, res, u) {
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.webm': 'video/webm', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8' };
 const ALLOWED_TOP = new Set(['index.html', 'admin.html', 'assets', 'uploads', 'data']);
 const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.txt']);
+const BUILD = Date.now().toString(36); /* رقم نسخة يتغير مع كل نشر لإجبار المتصفح على تحميل الملفات الجديدة */
 const fileCache = new Map(); /* مسار -> {mtime, size, etag, raw, gz} للملفات النصية الصغيرة */
 function serveStatic(req, res, u) {
   let rel = decodeURIComponent(u.pathname);
@@ -267,7 +268,7 @@ function serveStatic(req, res, u) {
   fs.stat(abs, (err, st) => {
     if (err || !st.isFile()) return send(res, 404, 'Not found');
     const ext = path.extname(abs).toLowerCase(), type = MIME[ext] || 'application/octet-stream', top = segs[0];
-    const etag = 'W/"' + st.size.toString(16) + '-' + Math.floor(st.mtimeMs).toString(16) + '"';
+    const etag = 'W/"' + st.size.toString(16) + '-' + Math.floor(st.mtimeMs).toString(16) + (ext === '.html' ? '-' + BUILD : '') + '"';
     const headers = { 'Content-Type': type, ETag: etag, 'Accept-Ranges': 'bytes',
       'Cache-Control': top === 'uploads' ? 'public, max-age=31536000, immutable' : 'no-cache' };
     if (abs.endsWith('admin.html')) headers['X-Robots-Tag'] = 'noindex';
@@ -285,6 +286,7 @@ function serveStatic(req, res, u) {
       if (c && c.etag === etag) return serve(c);
       return fs.readFile(abs, (e, raw) => {
         if (e) return send(res, 404, 'Not found');
+        if (ext === '.html') raw = Buffer.from(raw.toString('utf8').replace(/((?:src|href)="assets\/(?:css|js)\/[\w.-]+)"/g, `$1?v=${BUILD}"`));
         c = { etag, raw, gz: zlib.gzipSync(raw, { level: 9 }) }; fileCache.set(abs, c); serve(c);
       });
     }
