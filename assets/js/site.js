@@ -360,5 +360,10 @@
     setInterval(() => { if (document.visibilityState === 'visible') loadVotes(); }, 20000);
     if (location.hash && location.hash.length > 1) { const el = document.getElementById(location.hash.slice(1)); if (el) el.scrollIntoView(); }
   }
+  /* ضبط إطار بطاقة الفيديو على أبعاد الفيديو الفعلية (عمودي للريلز، أفقي للعادي) */
+  document.addEventListener('loadedmetadata', e => {
+    const v = e.target; if (!(v instanceof HTMLVideoElement) || !v.videoWidth) return;
+    const im = v.closest('.ncard .im'); if (im) im.style.setProperty('--vr', v.videoWidth + '/' + v.videoHeight);
+  }, true);
   boot();
 })();
