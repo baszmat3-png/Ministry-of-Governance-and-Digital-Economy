@@ -269,7 +269,7 @@ function serveStatic(req, res, u) {
     const ext = path.extname(abs).toLowerCase(), type = MIME[ext] || 'application/octet-stream', top = segs[0];
     const etag = 'W/"' + st.size.toString(16) + '-' + Math.floor(st.mtimeMs).toString(16) + '"';
     const headers = { 'Content-Type': type, ETag: etag, 'Accept-Ranges': 'bytes',
-      'Cache-Control': top === 'uploads' ? 'public, max-age=31536000, immutable' : (top === 'assets' ? 'public, max-age=3600, must-revalidate' : 'no-cache') };
+      'Cache-Control': top === 'uploads' ? 'public, max-age=31536000, immutable' : 'no-cache' };
     if (abs.endsWith('admin.html')) headers['X-Robots-Tag'] = 'noindex';
     if (req.headers['if-none-match'] === etag) return send(res, 304, '', headers);
     const gz = COMPRESSIBLE.has(ext) && st.size > 512 && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
